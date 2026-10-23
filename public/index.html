@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0f14">
+<title>Mesa de Poker · entre amigos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♠</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark">♠</span>
+      <span class="brand__text">Mesa de Poker</span>
+    </div>
+    <div class="topbar__mid" id="roomInfo" hidden>
+      <button class="code-chip" id="roomCode" title="Copiar el código de la mesa">
+        <span id="roomCodeText">-----</span>
+        <span class="code-chip__hint">copiar</span>
+      </button>
+      <span class="pill" id="roomPhase">—</span>
+    </div>
+    <div class="topbar__actions">
+      <button class="icon-btn" id="btnSound" title="Sonido" aria-label="Sonido">♪</button>
+      <button class="icon-btn" id="btnHelp" title="Cómo se juega" aria-label="Ayuda">?</button>
+      <button class="icon-btn icon-btn--danger" id="btnLeave" title="Salir de la mesa" aria-label="Salir" hidden>✕</button>
+    </div>
+  </header>
+
+  <main class="views">
+
+    <!-- ============================ INICIO ============================ -->
+    <section class="view view--home is-active" id="view-home">
+      <div class="hero">
+        <div class="hero__text">
+          <h1>Poker entre amigos</h1>
+          <p class="hero__lead">
+            Mesa privada, fichas de mentira y ni un céntimo de verdad.
+            Crea una mesa, comparte el código y cada uno juega desde su red.
+          </p>
+
+          <div class="panel panel--form">
+            <label class="field">
+              <span class="field__label">Tu nombre</span>
+              <input id="inputName" class="input" type="text" maxlength="18" placeholder="¿Cómo te llamamos?" autocomplete="nickname">
+            </label>
+
+            <div class="panel__row">
+              <button class="btn btn--primary btn--lg" id="btnCreate">Crear mesa</button>
+              <div class="join">
+                <input id="inputCode" class="input input--code" type="text" maxlength="5" placeholder="CÓDIGO" autocomplete="off" spellcheck="false">
+                <button class="btn btn--ghost" id="btnJoin">Unirse</button>
+              </div>
+            </div>
+            <p class="panel__note" id="homeError" hidden></p>
+          </div>
+
+          <ul class="features">
+            <li><b>Texas Hold'em</b>, <b>5-Card Draw</b> y <b>BlackJack</b></li>
+            <li>Ciega, subida minima y botes laterales</li>
+            <li>Chat, historial y contador de manos</li>
+            <li>Bots para jugar aunque no haya nadie</li>
+            <li>Sin cuentas, sin base de datos, sin dinero real</li>
+          </ul>
+        </div>
+
+        <div class="hero__art" aria-hidden="true">
+          <div class="fan">
+            <div class="fan__card fan__card--1">A♠</div>
+            <div class="fan__card fan__card--2">K♥</div>
+            <div class="fan__card fan__card--3">Q♦</div>
+            <div class="fan__card fan__card--4">J♣</div>
+          </div>
+          <div class="chips">
+            <span class="chip chip--r">100</span>
+            <span class="chip chip--b">25</span>
+            <span class="chip chip--g">5</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ VESTIBULO ============================ -->
+    <section class="view view--lobby" id="view-lobby">
+      <div class="lobby">
+        <div class="lobby__main">
+          <div class="panel">
+            <div class="panel__head">
+              <h2>Ajustes de la mesa</h2>
+              <span class="hint" id="settingsHint">Solo el anfitrión puede cambiarlos</span>
+            </div>
+
+            <div class="settings">
+              <div class="field">
+                <span class="field__label">Variante</span>
+                <div class="segmented" id="setVariant">
+                  <button data-value="holdem" class="is-active">Texas Hold'em</button>
+                  <button data-value="draw">5-Card Draw</button>
+                  <button data-value="blackjack">BlackJack</button>
+                </div>
+              </div>
+
+              <label class="field" id="fieldBb">
+                <span class="field__label">Ciega grande <b id="valBb">20</b></span>
+                <input id="setBb" class="range" type="range" min="2" max="250" step="1" value="20">
+              </label>
+
+              <label class="field">
+                <span class="field__label"><span id="labelSb">Ciega pequeña</span> <b id="valSb">10</b></span>
+                <input id="setSb" class="range" type="range" min="1" max="100" step="1" value="10">
+              </label>
+
+              <label class="field">
+                <span class="field__label">Fichas iniciales <b id="valStack">1000</b></span>
+                <input id="setStack" class="range" type="range" min="200" max="10000" step="100" value="1000">
+              </label>
+
+              <div class="field">
+                <span class="field__label">Bots <b id="valBots">0</b></span>
+                <input id="setBots" class="range" type="range" min="0" max="7" step="1" value="0">
+                <label class="check">
+                  <input type="checkbox" id="setAutoFill">
+                  <span>Rellenar los huecos si alguien se va</span>
+                </label>
+                <button class="btn btn--ghost btn--tiny" id="btnBots" type="button">Rellenar mesa con bots</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel__head">
+              <h2>Cómo se juega</h2>
+              <button class="btn btn--tiny" id="btnHelp2">Ver reglas</button>
+            </div>
+            <div class="ranks" id="rankList"></div>
+          </div>
+        </div>
+
+        <aside class="lobby__side">
+          <div class="panel panel--players">
+            <div class="panel__head">
+              <h2>Jugadores <span class="count" id="playerCount">0/8</span></h2>
+            </div>
+            <ul class="playerlist" id="lobbyPlayers"></ul>
+            <button class="btn btn--primary btn--block" id="btnStart" disabled>Empezar la partida</button>
+            <p class="panel__note" id="lobbyNote"></p>
+          </div>
+
+          <div class="panel panel--chat">
+            <div class="panel__head"><h2>Chat</h2></div>
+            <ul class="chat" id="lobbyChat"></ul>
+            <form class="chat__form" id="lobbyChatForm">
+              <input class="input" id="lobbyChatInput" type="text" maxlength="240" placeholder="Escribe algo…">
+              <button class="btn btn--tiny" type="submit">Enviar</button>
+            </form>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============================ MESA ============================ -->
+    <section class="view view--table" id="view-table">
+      <div class="table-area">
+        <div class="felt" id="felt">
+          <div class="felt__inner">
+            <div class="felt__brand">♠ MESA DE POKER</div>
+            <div class="table-center">
+              <div class="pot" id="potBox">
+                <span class="pot__label">Pozo</span>
+                <span class="pot__value" id="potValue">0</span>
+              </div>
+              <div class="board" id="board"></div>
+              <div class="street" id="streetLabel">—</div>
+            </div>
+          </div>
+          <div class="seats" id="seats"></div>
+        </div>
+      </div>
+
+      <div class="actionbar" id="actionbar">
+        <div class="actionbar__status" id="actionStatus">Esperando a los jugadores…</div>
+
+        <div class="actionbar__controls">
+          <div class="discard-panel" id="discardPanel" hidden>
+            <div class="discard-panel__cards" id="discardCards"></div>
+            <p class="discard-panel__hint">Pulsa las cartas que quieras cambiar</p>
+          </div>
+
+          <div class="raise-panel" id="raisePanel" hidden>
+            <div class="raise-panel__quick">
+              <button class="chip-btn" data-frac="0.5">1/2 bote</button>
+              <button class="chip-btn" data-frac="0.75">3/4 bote</button>
+              <button class="chip-btn" data-frac="1">Bote</button>
+              <button class="chip-btn" data-frac="allin">All-in</button>
+            </div>
+            <div class="raise-panel__row">
+              <input id="raiseAmount" class="input input--amount" type="number" min="0" step="1" inputmode="numeric">
+              <span class="raise-panel__unit" id="raiseUnit">fichas</span>
+              <button class="btn btn--primary btn--tiny" id="raiseConfirm" type="button">Confirmar</button>
+            </div>
+            <input id="raiseRange" class="range" type="range" min="0" max="100" step="1" value="0">
+          </div>
+
+          <div class="actions" id="actions"></div>
+        </div>
+      </div>
+
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar__tabs">
+          <button class="tab is-active" data-tab="log">Registro</button>
+          <button class="tab" data-tab="chat">Chat</button>
+          <button class="tab" data-tab="stats">Marcador</button>
+        </div>
+        <ul class="log" id="logList"></ul>
+        <ul class="chat" id="chatList" hidden></ul>
+        <ul class="scoreboard" id="scoreboard" hidden></ul>
+        <form class="chat__form" id="chatForm">
+          <input class="input" id="chatInput" type="text" maxlength="240" placeholder="Mensaje…">
+          <button class="btn btn--tiny" type="submit">Enviar</button>
+        </form>
+      </aside>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================ SHOWDOWN ============================ -->
+<div class="overlay" id="showdown" hidden>
+  <div class="overlay__card">
+    <div class="overlay__head">
+      <h2 id="showdownTitle">Showdown</h2>
+      <button class="icon-btn" id="showdownClose" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="showdown__body" id="showdownBody"></div>
+    <div class="overlay__foot">
+      <span class="hint" id="showdownNext"></span>
+      <button class="btn btn--primary" id="btnNextHand">Siguiente mano</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ AYUDA ============================ -->
+<div class="overlay" id="help" hidden>
+  <div class="overlay__card overlay__card--wide">
+    <div class="overlay__head">
+      <h2>Cómo se juega</h2>
+      <button class="icon-btn" id="helpClose" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="help">
+      <div class="help__col">
+        <h3>Texas Hold'em</h3>
+        <ol>
+          <li>Cada jugador recibe <b>2 cartas privadas</b>.</li>
+          <li>En la mesa se reparten <b>5 cartas comunitarias</b> (flop, turn, river).</li>
+          <li>Tu mejor mano es la mejor combinación de 5 cartas de tus 2 + las 5 de la mesa.</li>
+          <li>Rondas: pre-flop, flop, turn, river. En cada una decides.</li>
+        </ol>
+        <h3>5-Card Draw</h3>
+        <ol>
+          <li>Cada jugador recibe <b>5 cartas</b> y apuesta.</li>
+          <li>Puedes <b>descartar</b> hasta 5 cartas y recibes otras tantas.</li>
+          <li>Tras el descarte hay una última ronda de apuestas y el showdown.</li>
+        </ol>
+      </div>
+      <div class="help__col">
+        <h3>BlackJack</h3>
+        <ol>
+          <li>Cada jugador recibe <b>2 cartas</b> y pone un <b>ante</b> al bote.</li>
+          <li>El as vale <b>1 u 11</b>; las figuras (J, Q, K y el 10) valen <b>10</b>.</li>
+          <li>En tu turno: <b>pedir carta</b> o <b>plantarse</b>.</li>
+          <li>Te pasas si sumas más de 21. Con <b>21 natural</b> (as + figura) ganas al instante.</li>
+          <li>Al final gana el que más se acerca a 21 sin pasarse; los empates se reparten.</li>
+        </ol>
+        <h3>Acciones</h3>
+        <ul>
+          <li><b>Pasar</b>: no apostar (solo si nadie ha subido).</li>
+          <li><b>Igualar</b>: poner lo mismo que la apuesta vigente.</li>
+          <li><b>Subir</b>: incrementar la apuesta (respeta la subida mínima).</li>
+          <li><b>Retirarse</b>: entregar las cartas y abandonar la mano.</li>
+        </ul>
+      </div>
+        <h3>Antes de empezar</h3>
+        <ul>
+          <li>El anfitrión comparte el <b>código</b> de la mesa.</li>
+          <li>Si estáis en la misma wifi, con la IP local vale; si no, usa un túnel (ngrok, cloudflared).</li>
+          <li>Las fichas son de mentira: <b>no hay dinero real</b>.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
