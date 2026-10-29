@@ -11,7 +11,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 RANK_LABELS: Dict[int, str] = {
     2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8",
@@ -140,6 +140,96 @@ def blackjack_total(cards: Sequence[Card]) -> int:
     if aces and total + 10 <= 21:
         total += 10
     return total
+
+
+def evaluate_golpes(cards: Sequence[Card]) -> Tuple[int, List[int], str]:
+    """Evalua una mano para el juego de Golpes: 1 = Trio, 2 = Escalera, 0 = Ninguno."""
+    if len(cards) != 3:
+        return 0, [], ""
+    
+    ranks = [c.rank for c in cards]
+    suits = [c.suit for c in cards]
+    
+    # Verificar trío: 3 cartas del mismo valor, palos diferentes
+    if len(set(ranks)) == 1:
+        return 1, ranks, "Trío"
+    
+    # Verificar escalera: 3 cartas consecutivas del mismo palo
+    if len(set(suits)) == 1:
+        sorted_ranks = sorted(ranks)
+        if len(set(sorted_ranks)) == 3:
+            is_consecutive = (sorted_ranks[2] - sorted_ranks[1] == 1 and 
+                            sorted_ranks[1] - sorted_ranks[0] == 1)
+            if is_consecutive:
+                return 2, sorted_ranks, "Escalera"
+    
+    return 0, [], ""
+
+
+def get_golpes_groups(cards: Sequence[Card]) -> List[Tuple[int, List[int], str]]:
+    """Encuentra todas las combinaciones válidas de 3 cartas en una mano para Golpes."""
+    groups = []
+    
+    for combo in combinations(cards, 3):
+        grupo = evaluate_golpes(combo)
+        if grupo[0] > 0:  # Es un trío o escalera válido
+            groups.append(grupo)
+    
+    return groups
+
+
+def has_golpes_win(cards: Sequence[Card]) -> bool:
+    """Verifica si una mano tiene 2 grupos válidos + 1 extra para ganar en Golpes."""
+    if len(cards) < 4:
+        return False
+    
+    # Encontrar dos grupos válidos no superpuestos
+    # Iterar sobre todas las combinaciones posibles de 3 cartas para el primer grupo
+    for combo1 in combinations(cards, 3):
+        grupo1 = evaluate_golpes(combo1)
+        if grupo1[0] > 0:  # Primer grupo válido
+            # Crear lista de cartas restantes
+            remaining = list(cards)
+            for c in combo1:
+                remaining.remove(c)
+            
+            # Verificar si el resto puede formar un segundo grupo válido
+            for combo2 in combinations(remaining, 3):
+                grupo2 = evaluate_golpes(combo2)
+                if grupo2[0] > 0:  # Segundo grupo válido
+                    # Encontramos dos grupos no superpuestos
+                    return True
+    
+    return False
+
+
+def get_golpes_winning_combination(cards: Sequence[Card]) -> Optional[List[Card]]:
+    """Devuelve la primera combinación ganadora de 3 cartas que forma una combinación de win."""
+    all_groups = get_golpes_groups(cards)
+    
+    if len(all_groups) >= 2:
+        # Encontrar 2 grupos que no se solapan
+        for i, group1 in enumerate(all_groups):
+            # Obtener las cartas de este grupo (necesitamos las cartas reales, no solo eval)
+            # Como get_golpes_groups devuelve solo la evaluación, necesitamos buscar nuevamente
+            for combo in combinations(cards, 3):
+                grupo = evaluate_golpes(combo)
+                if grupo[0] == group1[0]:
+                    # Encontrado un grupo del mismo tipo
+                    remaining = list(cards)
+                    remaining.remove(combo[0])
+                    remaining.remove(combo[1])
+                    remaining.remove(combo[2])
+                    
+                    # Verificar si el resto también forma un grupo válido
+                    for combo2 in combinations(remaining, 3):
+                        if combo2[0] in remaining and combo2[1] in remaining and combo2[2] in remaining:
+                            grupo2 = evaluate_golpes(combo2)
+                            if grupo2[0] > 0:
+                                # Devolver las 6 cartas ganadoras + 1 extra
+                                return list(combo) + list(combo2) + [remaining[0]] if remaining else list(combo) + list(combo2)
+    
+    return None
 
 
 CATEGORY_NAMES: Dict[int, str] = {

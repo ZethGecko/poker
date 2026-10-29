@@ -7,7 +7,11 @@ import random
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
-from .hands import Card, best_of, evaluate5, shuffled_deck, blackjack_total
+from .hands import Card, best_of, evaluate5, shuffled_deck, blackjack_total, has_golpes_win, get_golpes_winning_combination
+
+
+TURN_SECONDS = 30
+NEXT_HAND_DELAY = 10
 
 
 class GameError(Exception):
@@ -15,10 +19,11 @@ class GameError(Exception):
 
 
 STREET_PLANS: Dict[str, List[tuple]] = {
-    # (tipo, nombre) -> tipo 'bet' = ronda de apuestas, 'discard' = eleccion de descarte
+    # (tipo, nombre) -> tipo 'bet' = ronda de apuestas, 'discard' = eleccion de descarte, 'play' = fase de juego
     "holdem": [("bet", "preflop"), ("bet", "flop"), ("bet", "turn"), ("bet", "river")],
     "draw": [("bet", "preflop"), ("discard", "discard"), ("bet", "final")],
     "blackjack": [("bet", "blackjack")],
+    "golpes": [("play", "golpes")],
 }
 
 STREET_LABELS = {
@@ -29,6 +34,7 @@ STREET_LABELS = {
     "discard": "Descarte",
     "final": "Ronda final",
     "blackjack": "BlackJack",
+    "golpes": "Golpes",
 }
 
 ACTION_LABELS = {
@@ -146,6 +152,8 @@ class Game:
     def start_hand(self) -> None:
         if self.is_blackjack():
             return self._start_blackjack_hand()
+        if self.is_golpes():
+            return self._start_golpes_hand()
         eligible = self.live_players()
         if len(eligible) < 2:
             raise GameError("Se necesitan al menos 2 jugadores con fichas")
@@ -812,3 +820,227 @@ class Game:
             "discard_pending": sorted(
                 pid for pid in self.discard_requests if pid not in self._discard_done),
         }
+
+    # ------------------------------------------------------------- golpes
+    def is_golpes(self) -> bool:
+        return self.variant == "golpes"
+
+    def _start_golpes_hand(self) -> None:
+        """Golpes: juego de 2 grupos (tríos/escaleras) + 1 extra para ganar."""
+        eligible = self.live_players()
+        if len(eligible) < 2:
+            raise GameError("Se necesitan al menos 2 jugadores con fichas")
+        
+        # Usar suficientes barajas para repartir 8 cartas al starter + 7 a cada jugador
+        decks = max(1, math.ceil((8 + 7 * len(eligible)) / 52))
+        self.deck = shuffled_deck(self.rng, decks)
+        self.board = []
+        self.pot = 0
+        self.pots = []
+        self.result = None
+        self.last_winner = None
+        self.hand_number += 1
+        self.street = 0
+        self.discard_requests = {}
+        self._discard_done = set()
+
+        for p in self.players:
+            p.update(
+                bet=0, folded=False, all_in=False, cards=[],
+                total_contrib=0, last_action=None, revealed=False,
+                # Campos para Golpes
+                **{"golpes_groups": [], "golpes_can_win": False, "golpes_winning_hand": None},
+            )
+
+        self._rotate_button()
+        
+        # Repartir 8 cartas al jugador que comienza (starter), 7 al resto
+        # El starter es el primer jugador con chips después del botón
+        live = self.live_players()
+        starter_index = -1
+        for step in range(1, len(self.players) + 1):
+            idx = (self.button_index + step) % len(self.players)
+            if self.players[idx]["stack"] > 0:
+                starter_index = idx
+                break
+        
+        if starter_index >= 0:
+            starter = self.players[starter_index]
+            # Repartir 8 cartas al starter
+            for _ in range(8):
+                starter["cards"].append(self._deal(1)[0])
+            # Repartir 7 cartas a todos los demás
+            for i, p in enumerate(self.players):
+                if i != starter_index and p["stack"] > 0:
+                    for _ in range(7):
+                        p["cards"].append(self._deal(1)[0])
+
+        self.phase = "play"
+        self.to_act = starter["id"]
+        self.turn_deadline = time.time() + TURN_SECONDS
+
+    def _legal_golpes(self, pid: str) -> dict:
+        p = self.player(pid)
+        cards = p["cards"]
+        
+        # Para Golpes: puede tomar del mazo (si hay cartas) o descartar
+        legal_actions = {
+            "stack": p["stack"],
+            "pot": self.pot,
+            "cards": len(cards),
+            "can_draw": len(self.deck) > 0,
+            "can_discard": True,
+            "turn_deadline": self.turn_deadline,
+            "can_win": has_golpes_win(cards) if self.turn_deadline and time.time() < self.turn_deadline else False,
+        }
+        
+        return legal_actions
+
+    def _act_golpes(self, pid: str, action: str) -> dict:
+        p = self.player(pid)
+        
+        if action == "draw":
+            # Robar una carta del mazo
+            if len(self.deck) <= 0:
+                raise GameError("No hay cartas en el mazo")
+            
+            # Obtener la carta del mazo
+            new_card = self._deal(1)[0]
+            p["cards"].append(new_card)
+            
+            # Descartar una carta (remover la primera si es elegida por el bot, o cualquier carta)
+            if len(p["cards"]) > 7:  # Si tiene 8 cartas (starter), debe descartar
+                p["cards"].pop(0)  # Descartar la primera carta como ejemplo
+            
+            p["last_action"] = "draw"
+            
+            # Verificar si el jugador ganó
+            if has_golpes_win(p["cards"]):
+                p["golpes_can_win"] = True
+                # Encontrar la combinación ganadora exacta
+                winning_hand = get_golpes_winning_combination(p["cards"])
+                if winning_hand:
+                    p["golpes_winning_hand"] = winning_hand
+                    # El juego termina inmediatamente
+                    self._finish_golpes_hand(pid)
+                    return {"action": action, "amount": 0, "won": True, "hand": winning_hand}
+        
+        elif action == "discard":
+            # Descartar una carta (el cliente debe enviar los índices)
+            # Para Golpes, el descarte se hace a través de submit_discard, no act
+            raise GameError("El descarte se hace a través de discard con los índices de las cartas")
+        
+        else:
+            raise GameError(f"Accion desconocida en Golpes: {action}")
+        
+        return {"action": action, "amount": 0, "won": False}
+
+    def _finish_golpes_hand(self, winner_pid: str) -> None:
+        """Finaliza la mano de Golpes y reparte las fichas."""
+        self.phase = "hand_over"
+        self.to_act = None
+        self.turn_deadline = None
+        
+        winner = self.player(winner_pid)
+        
+        # Todos los jugadores aportan 1 ficha al bote
+        for p in self.players:
+            if p["stack"] > 0:
+                self._commit(p, 1)
+        
+        # El ganador se lleva todo el bote
+        if winner["stack"] > 0:
+            self.player(winner_pid)["stack"] += self.pot
+            payout_amount = self.pot
+        else:
+            payout_amount = 0
+        
+        self.pot = 0
+        self.pots = []
+        
+        # Preparar el resultado
+        hands = {}
+        payouts = {}
+        details = []
+        
+        for p in self.players:
+            hands[p["id"]] = {
+                "cat": "golpes",
+                "name": f"{len(p['cards'])} cartas",
+                "tie": 0,
+                "best": [c.to_json() for c in p["cards"]],
+                "cards": [c.to_json() for c in p["cards"]],
+                "winning_hand": p.get("golpes_winning_hand", []),
+            }
+        
+        if payout_amount > 0:
+            payouts[winner_pid] = payout_amount
+            details.append({
+                "amount": payout_amount,
+                "winners": [winner_pid],
+                "label": "Bote",
+            })
+        
+        # Revelar las cartas de todos los jugadores
+        for p in self.players:
+            p["revealed"] = True
+        
+        self.result = {
+            "type": "golpes",
+            "pot_total": payout_amount,
+            "pots": details,
+            "hands": hands,
+            "payouts": payouts,
+            "winners": [winner_pid] if payout_amount > 0 else [],
+        }
+        self.last_winner = winner_pid if payout_amount > 0 else None
+        
+        # Actualizar estadísticas
+        for p in self.players:
+            if not p["folded"] and p["total_contrib"] > 0:
+                p["stats"]["hands"] = p["stats"]["hands"] + 1
+        
+        for pid, amount in (payouts or {}).items():
+            p = self.player(pid)
+            if not p:
+                continue
+            p["stats"]["wins"] = p["stats"]["wins"] + 1
+            p["stats"]["chips"] = p["stats"]["chips"] + amount
+
+    def _advance_golpes_turn(self) -> None:
+        """Pasa al siguiente jugador en Golpes."""
+        if self.to_act is None:
+            return
+            
+        n = len(self.players)
+        idx = self.index_of(self.to_act)
+        
+        # Pasar al siguiente jugador que todavía puede jugar
+        for step in range(1, n + 1):
+            cand = self.players[(idx + step) % n]
+            if cand["stack"] > 0:
+                self.to_act = cand["id"]
+                self.turn_deadline = time.time() + TURN_SECONDS
+                return
+        
+        # Si todos terminan, la mano termina
+        self.to_act = None
+        self.turn_deadline = None
+
+    def _check_golpes_timeout(self, pid: str) -> None:
+        """Verifica si un turno en Golpes ha expirado."""
+        if self.to_act != pid:
+            return
+        
+        if self.turn_deadline and time.time() > self.turn_deadline:
+            p = self.player(pid)
+            # Si el jugador puede ganar, ganar automáticamente
+            if p.get("golpes_can_win", False):
+                self._finish_golpes_hand(pid)
+            else:
+                # Descartar una carta automáticamente
+                if len(p["cards"]) > 0:
+                    p["cards"].pop(0)
+                p["last_action"] = "timeout"
+                self._advance_golpes_turn()
+

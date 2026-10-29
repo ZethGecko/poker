@@ -71,20 +71,25 @@ ngrok http 8000
   entra un bot en su hueco; y los bots se recargan solos cuando se quedan sin fichas.
 - **Recargas de fichas**: si te quedas sin fichas, un botón en la barra de acciones
   (y en el marcador) te devuelve las fichas iniciales al momento.
-- **BlackJack**: dos cartas por jugador, un ante para todos y el que más se acerca a 21
-  sin pasarse se lleva el bote. El as vale 1 u 11 y las figuras valen 10. Con 21 natural
-  (as + figura) se gana al instante; los empates se reparten y si todos se pasan el bote
-  vuelve a cada uno.
-- **Reglas completas**: ciegas, botón de dealer, subida mínima, all-in corto, botes
-  laterales, división de empates y devolución de apuestas sin igualar.
-- **Mesa en vivo**: asientos repartidos en óvalo con tu posición abajo, pozo con animación,
-  temporizador de turno (30 s, pasa o se retira solo), registro de la mano, chat y marcador.
-  Los bots juegan con un retardo corto para que la mesa no parezca automática.
-- **Showdown**: se muestran las manos, se resalta la mejor combinación de 5 y se reparte el bote.
-  En BlackJack se ve el total de cada uno y la mejor mano queda resaltada.
-- **Reconexión**: tu asiento y tu ficha se guardan en el navegador; si se cae la conexión,
-  el cliente se reconecta solo y te devuelve a la mesa.
-- **Sonido** generado en el navegador (sin ficheros de audio) y pantalla adaptable a móvil.
+    - **BlackJack**: dos cartas por jugador, un ante para todos y el que más se acerca a 21
+      sin pasarse se lleva el bote. El as vale 1 u 11 y las figuras valen 10. Con 21 natural
+      (as + figura) se gana al instante; los empates se reparten y si todos se pasan el bote
+      vuelve a cada uno.
+    - **Golpes**: juego tradicional español/hispanoamericano para hasta 5 jugadores con 2-4
+      jugadores ideales. Cada jugador recibe 7 cartas (8 para el starter), debe formar 2
+      combinaciones ganadoras (trío o escalera) y bota la carta extra para cerrar el juego.
+      Se puede pedir carta del mazo o descartar cartas de la mano. Se juega con un solo mazo
+      y termina cuando alguien completa sus dos grupos más la carta extra.
+    - **Reglas completas**: ciegas, botón de dealer, subida mínima, all-in corto, botes
+      laterales, división de empates y devolución de apuestas sin igualar.
+    - **Mesa en vivo**: asientos repartidos en óvalo con tu posición abajo, pozo con animación,
+      temporizador de turno (30 s, pasa o se retira solo), registro de la mano, chat y marcador.
+      Los bots juegan con un retardo corto para que la mesa no parezca automática.
+    - **Showdown**: se muestran las manos, se resalta la combinación ganadora de 6 cartas y se reparte el bote.
+      En BlackJack se ve el total de cada uno y la mejor mano queda resaltada.
+    - **Reconexión**: tu asiento y tu ficha se guardan en el navegador; si se cae la conexión,
+      el cliente se reconecta solo y te devuelve a la mesa.
+    - **Sonido** generado en el navegador (sin ficheros de audio) y pantalla adaptable a móvil.
 
 ## Detalles técnicos
 

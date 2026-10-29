@@ -26,6 +26,10 @@ TURN_SECONDS = 30
 NEXT_HAND_DELAY = 10
 RECONNECT_GRACE = 600  # segundos que se conserva el asiento
 
+TURN_SECONDS = 30
+NEXT_HAND_DELAY = 10
+RECONNECT_GRACE = 600  # segundos que se conserva el asiento
+
 
 def new_code(rng_len: int = 5) -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(rng_len))
@@ -54,7 +58,7 @@ class Room:
             "small_blind": 10,
             "big_blind": 20,
             "start_stack": 1000,
-            "max_players": 8,
+            "max_players": 5,
             "bots": 0,
             "auto_fill": False,
             "rebuy": 0,   # 0 = usar el stack inicial
@@ -269,7 +273,7 @@ class Room:
         if self.phase != "lobby":
             raise GameError("Solo se pueden cambiar los ajustes en el vestibulo")
         variant = patch.get("variant", self.settings["variant"])
-        if variant not in ("holdem", "draw", "blackjack"):
+        if variant not in ("holdem", "draw", "blackjack", "golpes"):
             raise GameError("Variante no valida")
         sb = int(patch.get("small_blind", self.settings["small_blind"]))
         bb = int(patch.get("big_blind", self.settings["big_blind"]))

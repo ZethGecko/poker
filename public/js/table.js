@@ -252,23 +252,35 @@ export function renderActions(els, state, handlers) {
 
   if (!me) { actionStatus.textContent = "Espera a que empiece la partida…"; return; }
 
-  // --- black jack: pedir carta o plantarse
-  if (g.variant === "blackjack" && g.phase === "betting") {
-    const legal = me.legal;
-    if (!legal) {
-      const turnPlayer = state.players.find((p) => p.is_to_act);
-      actionStatus.innerHTML = turnPlayer
-        ? `Turno de <b>${escapeHtml(turnPlayer.name)}</b>`
-        : "Esperando…";
+    // --- fase de draw/golpes: pedir carta o descartar
+    if ((g.variant === "draw" || g.variant === "golpes") && g.phase === "betting") {
+      const legal = me.legal;
+      if (!legal) {
+        const turnPlayer = state.players.find((p) => p.is_to_act);
+        actionStatus.innerHTML = turnPlayer
+          ? `Turno de <b>${escapeHtml(turnPlayer.name)}</b>`
+          : "Esperando…";
+        return;
+      }
+      const canDraw = legal.can_draw;
+      const canDiscard = legal.can_discard;
+      actionStatus.innerHTML = `Te toca. <span class="countdown" id="turnClock"></span>`;
+      
+      actions.append(actionButton("Retirarse", "btn--fold", () => handlers.act("fold")));
+      
+      if (canDraw) {
+        actions.append(actionButton("Pedir carta", "btn--raise", () => handlers.act("draw")));
+      }
+      if (canDiscard && g.phase === "betting") {
+        actions.append(actionButton("Descartar", "btn--check", () => {
+          // El cliente debe seleccionar las cartas antes de descartar
+          if (handlers.getSelection && handlers.getSelection().length > 0) {
+            handlers.discard(handlers.getSelection());
+          }
+        }));
+      }
       return;
     }
-    actionStatus.innerHTML =
-      `Te toca. Tu mano suma <b>${legal.total}</b> <span class="countdown" id="turnClock"></span>`;
-    actions.append(actionButton("Pedir carta", "btn--raise", () => handlers.act("hit")));
-    actions.append(actionButton("Plantarse", "btn--check", () => handlers.act("stand")));
-    actions.append(actionButton("Retirarse", "btn--fold", () => handlers.act("fold")));
-    return;
-  }
 
   // --- fase de descarte (5-card draw)
   if (g.phase === "discard" && me.can_discard) {
