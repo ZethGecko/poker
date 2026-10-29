@@ -170,13 +170,8 @@ class Handler(BaseHTTPRequestHandler):
     def handle_static(self, path):
         if path == "/":
             path = "/index.html"
-        elif path == "/style.css":
-            path = "/styles.css"
         elif path.startswith("/js/"):
             pass
-        else:
-            self.send_error(404, "Archivo no encontrado")
-            return
 
         static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
         try:
@@ -272,12 +267,8 @@ def handle_static_request(environ, start_response):
 
     if path == "/":
         path = "/index.html"
-    elif path == "/style.css":
-        path = "/styles.css"
     elif path.startswith("/js/"):
         pass
-    else:
-        return error_response(start_response, 404, f"File not found: {path}")
 
     static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
 
@@ -421,13 +412,8 @@ class Handler(BaseHTTPRequestHandler):
     def handle_static(self, path):
         if path == "/":
             path = "/index.html"
-        elif path == "/style.css":
-            path = "/styles.css"
         elif path.startswith("/js/"):
             pass
-        else:
-            self.send_error(404, "Archivo no encontrado")
-            return
 
         static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
         try:
