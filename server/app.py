@@ -286,9 +286,8 @@ class Handler(BaseHTTPRequestHandler):
             sub = room.subscribe(pid, token)
 
         try:
-            self.wfile.write(
-                f"data: {_json({'type': 'state', 'state': room.state_for(pid)}).decode()}\n\n".encode()
-            )
+            payload0 = _json({'type': 'state', 'state': room.state_for(pid)}).decode()
+            self.wfile.write(f"event: state\ndata: {payload0}\n\n".encode())
             self.wfile.flush()
             while True:
                 if sub is not None and not sub.active:
@@ -298,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
                 except queue.Empty:
                     payload = None
                 if payload:
-                    self.wfile.write(f"data: {_json(payload).decode()}\n\n".encode())
+                    self.wfile.write(f"event: state\ndata: {_json(payload).decode()}\n\n".encode())
                     self.wfile.flush()
                 time.sleep(0.5)
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -307,7 +306,6 @@ class Handler(BaseHTTPRequestHandler):
             if sub:
                 room.unsubscribe(sub)
 
-    # ------------------------------------------------------------- archivos estaticos
     def handle_static(self):
         path = urlparse(self.path).path
         if path == "/":
@@ -387,22 +385,18 @@ def app(environ, start_response):
 
         def generate():
             try:
-                yield f"data: {_json({'type': 'state', 'state': room.state_for(pid)}).decode()}\n\n".encode()
+                payload0 = _json({'type': 'state', 'state': room.state_for(pid)}).decode()
+                yield f"event: state\ndata: {payload0}\n\n".encode()
                 while True:
                     time.sleep(2)
                     try:
-                        yield f"data: {_json({'type': 'state', 'state': room.state_for(pid)}).decode()}\n\n".encode()
+                        payload = _json({'type': 'state', 'state': room.state_for(pid)}).decode()
+                        yield f"event: state\ndata: {payload}\n\n".encode()
                     except Exception:
                         return
             except GeneratorExit:
                 return
 
-        start_response("200 OK", [
-            ("Content-Type", "text/event-stream"),
-            ("Cache-Control", "no-cache"),
-            ("Connection", "keep-alive"),
-            ("X-Accel-Buffering", "no"),
-        ])
         return generate()
 
     if path.startswith("/api/"):
