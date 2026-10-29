@@ -325,6 +325,33 @@ def _wsgi_body(environ):
         return {}
 
 
+def _serve_static(environ, start_response, path):
+    """Sirve un archivo estatico desde PUBLIC_DIR (/, /styles.css, /js/...)."""
+    if path == "/":
+        path = "/index.html"
+    static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
+    try:
+        with open(static_path, "rb") as f:
+            content = f.read()
+    except FileNotFoundError:
+        body = _json({"error": f"Archivo no encontrado: {path}"})
+        start_response("404 Not Found", [
+            ("Content-Type", "application/json"),
+            ("Content-Length", str(len(body))),
+        ])
+        return [body]
+
+    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    method = environ.get("REQUEST_METHOD", "")
+    start_response("200 OK", [
+        ("Content-Type", content_type),
+        ("Content-Length", str(len(content))),
+    ])
+    if method == "HEAD":
+        return [b""]
+    return [content]
+
+
 def app(environ, start_response):
     """WSGI application entry point for Gunicorn."""
     method = environ.get("REQUEST_METHOD", "")
@@ -334,7 +361,7 @@ def app(environ, start_response):
     parts = [p for p in path.strip("/").split("/") if p]
 
     # SSE bajo Gunicorn: envia estado periodicamente mientras la conexione viva.
-    if method == "GET" and len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "stream":
+    if method in ("GET", "HEAD") and len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "stream":
         room_code = parts[2]
         room = manager.get(room_code)
         if not room:
@@ -368,29 +395,37 @@ def app(environ, start_response):
         ])
         return generate()
 
-    body = _wsgi_body(environ)
-    try:
-        status, data = _api_dispatch(method, path, body, query)
-        body_bytes = _json(data)
-        start_response(f"{status} {HTTPStatus(status).phrase}", [
-            ("Content-Type", "application/json"),
-            ("Content-Length", str(len(body_bytes))),
-        ])
-        return [body_bytes]
-    except GameError as e:
-        body_bytes = _json({"error": str(e)})
-        start_response("400 Bad Request", [
-            ("Content-Type", "application/json"),
-            ("Content-Length", str(len(body_bytes))),
-        ])
-        return [body_bytes]
-    except Exception as e:
-        body_bytes = _json({"error": f"Error del servidor: {e}"})
-        start_response("500 Internal Server Error", [
-            ("Content-Type", "application/json"),
-            ("Content-Length", str(len(body_bytes))),
-        ])
-        return [body_bytes]
+    if path.startswith("/api/"):
+        if method == "HEAD":
+            # Health-check: responder 200 vacio sin body
+            start_response("200 OK", [("Content-Length", "0")])
+            return [b""]
+        body = _wsgi_body(environ)
+        try:
+            status, data = _api_dispatch(method, path, body, query)
+            body_bytes = _json(data)
+            start_response(f"{status} {HTTPStatus(status).phrase}", [
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(body_bytes))),
+            ])
+            return [body_bytes]
+        except GameError as e:
+            body_bytes = _json({"error": str(e)})
+            start_response("400 Bad Request", [
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(body_bytes))),
+            ])
+            return [body_bytes]
+        except Exception as e:
+            body_bytes = _json({"error": f"Error del servidor: {e}"})
+            start_response("500 Internal Server Error", [
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(body_bytes))),
+            ])
+            return [body_bytes]
+
+    # Rutas estaticas (/, /styles.css, /js/app.js, etc.)
+    return _serve_static(environ, start_response, path)
 
 
 # ---------------------------------------------------------------------------
