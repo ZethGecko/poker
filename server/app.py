@@ -148,6 +148,9 @@ def _api_dispatch(method, path, body, query):
                     room.start_game(pid)
                 except GameError as e:
                     return _fail(400, str(e))
+                # Difundir inmediatamente a todos los suscriptores (SSE) para que
+                # los invitados vean que la partida comenzó y pasen a la vista de mesa.
+                room.publish()
                 return _ok({"state": room.state_for(pid)})
 
             if action == "next":
@@ -385,11 +388,27 @@ def app(environ, start_response):
 
         def generate():
             try:
+                sub = None
+                if pid and token and room.authenticate(pid, token):
+                    sub = room.subscribe(pid, token)
+
+                # Send initial state
                 payload0 = _json({'type': 'state', 'state': room.state_for(pid)}).decode()
                 yield f"event: state\ndata: {payload0}\n\n".encode()
+
                 while True:
+                    # Check for pending updates in the queue (similar to native version)
+                    if sub:
+                        try:
+                            payload = _json(sub.queue.get(timeout=0.5)).decode()
+                            yield f"event: state\ndata: {payload}\n\n".encode()
+                            continue  # Skip the sleep since we got an update
+                        except queue.Empty:
+                            pass  # No updates, continue with sleep
+                    
                     time.sleep(2)
                     try:
+                        # Send current state every 2 seconds (fallback)
                         payload = _json({'type': 'state', 'state': room.state_for(pid)}).decode()
                         yield f"event: state\ndata: {payload}\n\n".encode()
                     except Exception:

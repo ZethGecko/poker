@@ -478,7 +478,12 @@ class Room:
                     self.add_log(f"{p['name']} se retira (tiempo agotado)", "action", pid)
             except GameError:
                 pass
-            self._after_hand()
+            self._after_action()
+            # Si por cualquier motivo la acción automática no consumió el turno,
+            # forzar el avance para no dejar la mesa bloqueada en el mismo jugador
+            # y que el temporizador siga pasando de turno al siguiente.
+            if g.to_act == pid:
+                g._advance_turn()
             self._schedule_turn_timer()
         self.publish()
 
@@ -582,9 +587,9 @@ class Room:
                     "can_discard": g.phase == "discard" and pid in g.discard_requests,
                     "discarded": g.discard_requests.get(pid),
                     "is_host": p["id"] == self.host_id,
-                "is_bot": bool(p.get("is_bot")),
+                    "is_bot": bool(p.get("is_bot")),
                     "can_start": self.is_host(pid) and self.phase == "lobby"
-                    and len([x for x in self.players if x["stack"] > 0]) >= 2,
+                        and len([x for x in self.players if x["stack"] > 0]) >= 2,
                 }
         return {
             "code": self.code,
@@ -601,7 +606,7 @@ class Room:
             "me": me,
         }
 
-    # ------------------------------------------------------------- difusion
+# ------------------------------------------------------------- difusion
     def publish(self) -> None:
         self.touch()
         for sub in list(self.subscribers):
