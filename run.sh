@@ -3,8 +3,8 @@
 set -e
 cd "$(dirname "$0")"
 
-PORT="${1:-8000}"
-HOST="${2:-0.0.0.0}"
+PORT="${1:-${PORT:-8000}}"
+HOST="${2:-${HOST:-0.0.0.0}}"
 
 echo ""
 echo "  Mesa de poker · solo Python 3, sin dependencias"
