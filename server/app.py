@@ -81,6 +81,16 @@ def _api_dispatch(method, path, body, query):
             if pid and token and not room.authenticate(pid, token):
                 return _fail(401, "Token invalido")
             return _ok(room.state_for(pid or None))
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "rooms" and parts[3] == "state":
+            code = parts[2]
+            room = get_room(code)
+            if not room:
+                return _fail(404, f"Sala no encontrada: {code}")
+            pid = (query.get("pid") or [None])[0]
+            token = (query.get("token") or [None])[0]
+            if pid and token and not room.authenticate(pid, token):
+                return _fail(401, "Token invalido")
+            return _ok(room.state_for(pid or None))
         return _fail(404, f"Endpoint no permitido: {path}")
 
     # ---------------- POST ----------------

@@ -1,9 +1,19 @@
 # gunicorn.conf.py
-import multiprocessing
+import os
 
-bind = "0.0.0.0:8000"
-workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = "sync"
+# Render inyecta el puerto en la variable de entorno PORT
+bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
+
+# Un solo proceso: así todos los workers comparten la misma memoria de salas.
+# Con varios procesos de Gunicorn cada uno tiene su propio diccionario de salas
+# y una mesa creada en un worker no se encuentra en otro -> 404 "mesa no existe".
+workers = 1
+
+# gthread permite atender peticiones HTTP normales mientras una conexion SSE
+# permanece abierta (sin bloquear todo el servidor).
+worker_class = "gthread"
+threads = 8
+
 timeout = 120
 keepalive = 2
 accesslog = "-"
