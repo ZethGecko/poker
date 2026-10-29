@@ -49,262 +49,409 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # silencia el log por defecto
         pass
 
-    def _send_json(self, obj, status: int = 200) -> None:
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
-        if not length:
-            return {}
-        raw = self.rfile.read(length)
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except Exception:
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    def _error(self, message: str, status: int = 400) -> None:
-        self._send_json({"error": message}, status)
-
-    # ------------------------------------------------------------------ GET
-    def do_GET(self) -> None:
+    # ------------------------------------------------------------ manejadores
+    def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        query = parse_qs(parsed.query)
 
         if path.startswith("/api/"):
-            return self._api_get(path, query)
-        return self._serve_static(path)
+            self.handle_api_get(path)
+        else:
+            self.handle_static(path)
 
-    def _api_get(self, path: str, query: dict) -> None:
-        parts = [p for p in path.split("/") if p]  # ['api','rooms',CODE,action]
-        if parts == ["api", "health"]:
-            return self._send_json({"ok": True, "rooms": len(manager.rooms), "time": time.time()})
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
 
-        if len(parts) >= 3 and parts[1] == "rooms":
-            code = parts[2].upper()
-            room = manager.get(code)
-            if room is None:
-                return self._error("La mesa no existe", 404)
-            action = parts[3] if len(parts) > 3 else "state"
-            pid = (query.get("pid") or [""])[0]
-            token = (query.get("token") or [""])[0]
-            if action == "state":
-                if not room.authenticate(pid, token):
-                    return self._error("Sesion no valida", 403)
-                return self._send_json({"state": room.state_for(pid)})
-            if action == "stream":
-                return self._stream(room, pid, token)
-        return self._error("Ruta no encontrada", 404)
+        if path.startswith("/api/"):
+            self.handle_api_post(path)
+        else:
+            self.send_error(404, "Endpoint no permitido")
 
-    def _stream(self, room, pid: str, token: str) -> None:
-        if not room.authenticate(pid, token):
-            return self._error("Sesion no valida", 403)
-        sub = room.subscribe(pid, token)
-        try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache, no-transform")
-            self.send_header("Connection", "keep-alive")
-            self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.end_headers()
-            self._sse(json.dumps({"type": "state", "state": room.state_for(pid)},
-                                  ensure_ascii=False))
+    # ------------------------------------------------------------ api
+    def handle_api_get(self, path):
+        path_parts = path.strip("/").split("/")
+        if len(path_parts) >= 3 and path_parts[0] == "api" and path_parts[1] == "rooms":
+            room_code = path_parts[2]
+
+            if len(path_parts) == 4 and path_parts[3] == "stream":
+                self.handle_stream(room_code)
+            elif len(path_parts) == 3:
+                self.send_json(self.get_room_state(room_code), 200)
+            else:
+                self.send_error(404, f"Unknown API endpoint: {path}")
+        else:
+            self.send_error(404, f"Unknown API endpoint: {path}")
+
+    def handle_api_post(self, path):
+        content_length = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_length).decode()
+        path_parts = path.strip("/").split("/")
+
+        if len(path_parts) >= 3 and path_parts[0] == "api" and path_parts[1] == "rooms":
+            room_code = path_parts[2]
+
+            try:
+                data = json.loads(post_data)
+                action = data.get("action")
+                amount = data.get("amount", 0)
+                pid = data.get("pid")
+                token = data.get("token")
+                indexes = data.get("indexes", [])
+
+                if not all([action, pid, token]):
+                    self.send_error(400, "Faltan campos requeridos")
+                    return
+
+                room = manager.get_room(room_code)
+                if not room:
+                    self.send_error(404, f"Sala no encontrada: {room_code}")
+                    return
+
+                player = room.authenticate(pid, token)
+                if not player:
+                    self.send_error(401, "Token inválido")
+                    return
+
+                if action == "discard":
+                    room.submit_discard(pid, indexes)
+                else:
+                    room.act(pid, action, int(amount))
+
+                self.send_json({"status": "ok"}, 200)
+
+            except json.JSONDecodeError:
+                self.send_error(400, "JSON inválido")
+            except GameError as e:
+                self.send_error(400, str(e))
+            except Exception as e:
+                self.send_error(500, f"Error del servidor: {str(e)}")
+
+        else:
+            self.send_error(404, f"Unknown API endpoint: {path}")
+
+    # ------------------------------------------------------------ respuesta
+    def send_json(self, data, code=200):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+    def send_error(self, code, message=None):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": message or HTTPStatus(code).phrase}).encode())
+
+    # ------------------------------------------------------------ activos
+    def handle_stream(self, room_code):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        room = manager.get_room(room_code)
+        if not room:
+            return
+
+        def stream_generator():
             while True:
                 try:
-                    msg = sub.queue.get(timeout=15)
-                except queue.Empty:
-                    self._chunk(": ping\n\n")
-                    continue
-                self._sse(json.dumps(msg, ensure_ascii=False))
-        except (BrokenPipeError, ConnectionResetError, OSError):
+                    state = room.state_for(None)
+                    self.wfile.write(f"data: {json.dumps(state)}\n\n".encode())
+                    self.wfile.flush()
+                    time.sleep(1)
+                except:
+                    break
+
+        stream_generator()
+
+    def handle_static(self, path):
+        if path == "/":
+            path = "/index.html"
+        elif path == "/style.css":
+            path = "/styles.css"
+        elif path.startswith("/js/"):
             pass
-        finally:
-            room.unsubscribe(sub)
-            try:
-                self._chunk("")
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-            except Exception:
-                pass
-            self.close_connection = True
-
-    def _sse(self, data: str, event: str = "state") -> None:
-        """Envia un mensaje SSE con el formato que espera EventSource."""
-        self._chunk(f"event: {event}\ndata: {data}\n\n")
-
-    def _chunk(self, data: str) -> None:
-        payload = data.encode("utf-8")
-        self.wfile.write(f"{len(payload):X}\r\n".encode("ascii") + payload + b"\r\n")
-        self.wfile.flush()
-
-    def _serve_static(self, path: str) -> None:
-        if path in ("/", "", "/index.html"):
-            rel = "index.html"
         else:
-            rel = path.lstrip("/")
-        target = os.path.normpath(os.path.join(PUBLIC_DIR, rel))
-        if not target.startswith(PUBLIC_DIR) or not os.path.isfile(target):
-            target = os.path.join(PUBLIC_DIR, "index.html")
-        ctype, _ = mimetypes.guess_type(target)
-        with open(target, "rb") as fh:
-            body = fh.read()
-        self.send_response(200)
-        self.send_header("Content-Type", ctype or "application/octet-stream")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
+            self.send_error(404, "Archivo no encontrado")
+            return
+
+        static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
+        try:
+            with open(static_path, "rb") as f:
+                content_type = self.guess_type(path)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.end_headers()
+                self.wfile.write(f.read())
+        except FileNotFoundError:
+            self.send_error(404, f"Archivo no encontrado: {path}")
+
+    def guess_type(self, path):
+        return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+    def get_room_state(self, room_code):
+        room = manager.get_room(room_code)
+        return room.state_for(None) if room else None
+
+
+# ----------------------------------------------------------------------------- entrada ws (para gunicorn)
+def app(environ, start_response):
+    """WSGI application entry point for Gunicorn"""
+    path = environ.get("PATH_INFO", "")
+    method = environ.get("REQUEST_METHOD", "")
+
+    if path.startswith("/api/"):
+        return handle_api_request(environ, start_response)
+    else:
+        return handle_static_request(environ, start_response)
+
+def handle_api_request(environ, start_response):
+    path = environ.get("PATH_INFO", "")
+    method = environ.get("REQUEST_METHOD", "")
+    content_length = int(environ.get("CONTENT_LENGTH", 0))
+
+    body = environ["wsgi.input"].read(content_length).decode() if content_length > 0 else ""
+
+    path_parts = path.strip("/").split("/")
+
+    if len(path_parts) >= 3 and path_parts[0] == "api" and path_parts[1] == "rooms":
+        room_code = path_parts[2]
+
+        if len(path_parts) == 4 and path_parts[3] == "stream":
+            return handle_stream_endpoint(environ, start_response, room_code)
+        elif len(path_parts) == 3:
+            return handle_room_endpoint(environ, start_response, room_code)
+        else:
+            return error_response(start_response, 404, f"Unknown API endpoint: {path}")
+
+    return error_response(start_response, 404, f"Unknown API endpoint: {path}")
+
+def handle_room_endpoint(environ, start_response, room_code):
+    room = manager.get_room(room_code)
+    if room:
+        state = room.state_for(None)
+        return json_response(start_response, 200, state)
+    else:
+        return error_response(start_response, 404, f"Room not found: {room_code}")
+
+def handle_stream_endpoint(environ, start_response, room_code):
+    room = manager.get_room(room_code)
+    if not room:
+        return error_response(start_response, 404, f"Room not found: {room_code}")
+
+    start_response("200 OK", [
+        ("Content-Type", "text/event-stream"),
+        ("Cache-Control", "no-cache"),
+        ("Connection", "keep-alive"),
+        ("X-Accel-Buffering", "no")
+    ])
+
+    def generate():
+        while True:
+            time.sleep(1)
+
+    return generate()
+
+def error_response(start_response, status_code, message):
+    start_response(f"{status_code} {HTTPStatus(status_code).phrase}", [
+        ("Content-Type", "application/json")
+    ])
+    return [json.dumps({"error": message}).encode()]
+
+def json_response(start_response, status_code, data):
+    start_response(f"{status_code} {HTTPStatus(status_code).phrase}", [
+        ("Content-Type", "application/json")
+    ])
+    return [json.dumps(data).encode()]
+
+def handle_static_request(environ, start_response):
+    path = environ.get("PATH_INFO", "")
+
+    if path == "/":
+        path = "/index.html"
+    elif path == "/style.css":
+        path = "/styles.css"
+    elif path.startswith("/js/"):
+        pass
+    else:
+        return error_response(start_response, 404, f"File not found: {path}")
+
+    static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
+
+    try:
+        with open(static_path, "rb") as f:
+            content = f.read()
+            content_type = "text/html"
+            if path.endswith(".css"):
+                content_type = "text/css"
+            elif path.endswith(".js"):
+                content_type = "application/javascript"
+
+            start_response("200 OK", [("Content-Type", content_type)])
+            return [content]
+    except FileNotFoundError:
+        return error_response(start_response, 404, f"File not found: {path}")
+
+
+# ----------------------------------------------------------------------------- servidor original (para desarrollo local)
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    server_version = "PokerEntreAmigos"
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            self.handle_api_get(path)
+        else:
+            self.handle_static(path)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            self.handle_api_post(path)
+        else:
+            self.send_error(404, "Endpoint no permitido")
+
+    def send_json(self, data, code=200):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(json.dumps(data).encode())
 
-    # ----------------------------------------------------------------- POST
-    def do_POST(self) -> None:
-        parts = [p for p in urlparse(self.path).path.split("/") if p]
-        body = self._read_json()
-        if len(parts) < 2 or parts[0] != "api" or parts[1] != "rooms":
-            return self._error("Ruta no encontrada", 404)
-        if len(parts) == 2:  # POST /api/rooms -> crear mesa
-            return self._create_room(body)
+    def send_error(self, code, message=None):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": message or HTTPStatus(code).phrase}).encode())
 
-        code = parts[2].upper() if len(parts) > 2 else ""
-        action = parts[3] if len(parts) > 3 else ""
+    def handle_api_get(self, path):
+        path_parts = path.strip("/").split("/")
+        if len(path_parts) >= 3 and path_parts[0] == "api" and path_parts[1] == "rooms":
+            room_code = path_parts[2]
 
-        if len(parts) == 2:  # POST /api/rooms -> crear mesa
-            return self._create_room(body)
-
-        room = manager.get(code)
-        if room is None:
-            return self._error("La mesa no existe", 404)
-        pid = body.get("pid") or ""
-        token = body.get("token") or ""
-
-        if action == "join":
-            return self._join(room, body)
-        if action == "leave":
-            return self._leave(room, pid, token)
-
-        player = room.authenticate(pid, token)
-        if player is None:
-            return self._error("Sesion no valida", 403)
-        player["connected"] = True
-        player["last_seen"] = time.time()
-
-        try:
-            if action == "action":
-                act = body.get("action")
-                if act == "discard":
-                    indexes = body.get("indexes") or []
-                    room.player_action(pid, "discard", indexes)
-                else:
-                    room.player_action(pid, act, int(body.get("amount") or 0))
-            elif action == "chat":
-                room.add_chat(pid, body.get("text") or "")
-            elif action == "ready":
-                player["ready"] = bool(body.get("ready", not player.get("ready")))
-            elif action == "settings":
-                room.update_settings(pid, body.get("settings") or {})
-            elif action == "start":
-                room.start_game(pid)
-            elif action == "next":
-                room.request_next_hand(pid)
-            elif action == "bots":
-                count = int(body.get("count", 0))
-                n = room.set_bots(pid, count, bool(body.get("remove")))
-                room.add_log(
-                    f"{'Se quitan' if body.get('remove') else 'Se anaden'} {n} bot(s)", "info")
-            elif action == "rebuy":
-                room.rebuy(pid, body.get("amount"))
+            if len(path_parts) == 4 and path_parts[3] == "stream":
+                self.handle_stream(room_code)
+            elif len(path_parts) == 3:
+                self.send_json(self.get_room_state(room_code), 200)
             else:
-                return self._error("Accion desconocida", 404)
-        except GameError as exc:
-            return self._error(str(exc), 400)
+                self.send_error(404, f"Unknown API endpoint: {path}")
+        else:
+            self.send_error(404, f"Unknown API endpoint: {path}")
 
-        room.publish()
-        return self._send_json({"ok": True, "state": room.state_for(pid)})
+    def handle_api_post(self, path):
+        content_length = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_length).decode()
+        path_parts = path.strip("/").split("/")
 
-    def _create_room(self, body: dict) -> None:
+        if len(path_parts) >= 3 and path_parts[0] == "api" and path_parts[1] == "rooms":
+            room_code = path_parts[2]
+
+            try:
+                data = json.loads(post_data)
+                action = data.get("action")
+                amount = data.get("amount", 0)
+                pid = data.get("pid")
+                token = data.get("token")
+                indexes = data.get("indexes", [])
+
+                if not all([action, pid, token]):
+                    self.send_error(400, "Faltan campos requeridos")
+                    return
+
+                room = manager.get_room(room_code)
+                if not room:
+                    self.send_error(404, f"Sala no encontrada: {room_code}")
+                    return
+
+                player = room.authenticate(pid, token)
+                if not player:
+                    self.send_error(401, "Token inválido")
+                    return
+
+                if action == "discard":
+                    room.submit_discard(pid, indexes)
+                else:
+                    room.act(pid, action, int(amount))
+
+                self.send_json({"status": "ok"}, 200)
+
+            except json.JSONDecodeError:
+                self.send_error(400, "JSON inválido")
+            except GameError as e:
+                self.send_error(400, str(e))
+            except Exception as e:
+                self.send_error(500, f"Error del servidor: {str(e)}")
+
+        else:
+            self.send_error(404, f"Unknown API endpoint: {path}")
+
+    def handle_stream(self, room_code):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        room = manager.get_room(room_code)
+        if not room:
+            return
+
+        def stream_generator():
+            while True:
+                try:
+                    state = room.state_for(None)
+                    self.wfile.write(f"data: {json.dumps(state)}\n\n".encode())
+                    self.wfile.flush()
+                    time.sleep(1)
+                except:
+                    break
+
+        stream_generator()
+
+    def handle_static(self, path):
+        if path == "/":
+            path = "/index.html"
+        elif path == "/style.css":
+            path = "/styles.css"
+        elif path.startswith("/js/"):
+            pass
+        else:
+            self.send_error(404, "Archivo no encontrado")
+            return
+
+        static_path = os.path.join(PUBLIC_DIR, path.lstrip("/"))
         try:
-            room = manager.create()
-        except GameError as exc:
-            return self._error(str(exc), 500)
-        player = room.add_player(body.get("name") or "Jugador")
-        return self._send_json({
-            "ok": True,
-            "code": room.code,
-            "pid": player["id"],
-            "token": player["token"],
-            "state": room.state_for(player["id"]),
-        })
+            with open(static_path, "rb") as f:
+                content_type = self.guess_type(path)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.end_headers()
+                self.wfile.write(f.read())
+        except FileNotFoundError:
+            self.send_error(404, f"Archivo no encontrado: {path}")
 
-    def _join(self, room, body: dict) -> None:
-        try:
-            player = room.add_player(body.get("name") or "Jugador")
-        except GameError as exc:
-            return self._error(str(exc), 400)
-        room.publish()
-        return self._send_json({
-            "ok": True,
-            "code": room.code,
-            "pid": player["id"],
-            "token": player["token"],
-            "state": room.state_for(player["id"]),
-        })
+    def guess_type(self, path):
+        return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
-    def _leave(self, room, pid: str, token: str) -> None:
-        if not room.authenticate(pid, token):
-            return self._error("Sesion no valida", 403)
-        room.remove_player(pid)
-        room.publish()
-        return self._send_json({"ok": True})
+    def get_room_state(self, room_code):
+        room = manager.get_room(room_code)
+        return room.state_for(None) if room else None
 
 
-def local_ips() -> list:
-    ips = set()
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ips.add(s.getsockname()[0])
-        s.close()
-    except Exception:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ips.add(info[4][0])
-    except Exception:
-        pass
-    return sorted(ips)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Mesa de poker entre amigos (sin DB)")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
-
-    threading.Thread(target=cleanup_loop, daemon=True).start()
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    httpd.daemon_threads = True
-
-    print("\n  Mesa de poker lista")
-    print("  --------------------------------------------------------")
-    print(f"  En esta maquina:  http://localhost:{args.port}")
-    for ip in local_ips():
-        print(f"  En la red local:  http://{ip}:{args.port}")
-    print("  Comparte esa IP (o un tunel) con tus amigos.")
-    print("  --------------------------------------------------------\n")
-
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\n  Cerrando...")
-        httpd.shutdown()
-
+def run_server():
+    server = ThreadingHTTPServer(("0.0.0.0", 8000), Handler)
+    print("Servidor iniciado en http://localhost:8000")
+    server.serve_forever()
 
 if __name__ == "__main__":
-    main()
+    run_server()
